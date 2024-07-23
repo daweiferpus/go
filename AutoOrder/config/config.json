@@ -1,0 +1,41 @@
+{
+  "OrderInfo": {
+    "IsFirstOrder": false,
+    "FirstLimitNum": 1,
+    "IsSecondOrder": true,
+    "IsFirst": true,
+    "OrderMoney": 10000
+  },
+  "Source": [
+    {
+      "Symbol": "sz300550",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    },
+    {
+      "Symbol": "sz300517",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    },
+    {
+      "Symbol": "sz300605",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    },
+    {
+      "Symbol": "sz301063",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    },
+    {
+      "Symbol": "sz300380",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    },
+    {
+      "Symbol": "sz300240",
+      "WarnPercent": 15,
+      "IsMonitor": false
+    }
+  ]
+}
