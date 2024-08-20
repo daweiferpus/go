@@ -32,11 +32,12 @@ type Config struct {
 
 type MoniterInfo struct {
     Symbol        string  `json:"Symbol"`
+    Name          string  `json:"Name"`
     Changepercent float64 `json:"WarnPercent"`
-    IsMoniter     bool    `json:"IsMonitor"` // 注意这里使用了json作为键，并且遵循了正确的格式
 }
 
 type OrderInfo struct {
+    IsMoniter     bool    `json:"IsMoniter"`     // 监控是否弹出窗口
     IsFirstOrder  bool    `json:"IsFirstOrder"`  // 打首板委托开关
     FirstLimitNum int     `json:"FirstLimitNum"` // 首板数量 超过该数量之后的板不打
     IsSecondOrder bool    `json:"IsSecondOrder"` // 打二板委托开关
@@ -66,13 +67,19 @@ var (
 
     // 问题股信息
     problemStock ProblemStock
+    // 关闭同花顺客户端
+    // thsCloseUrl = "http://127.0.0.1:5000/thsauto/client/kill"
     // 重启同花顺客户端请求
-    thsStartUrl = "http://127.0.0.1:5000/thsauto/client/restart"
+    // thsStartUrl = "http://127.0.0.1:5000/thsauto/client/restart"
+    // 显示同花顺客户端请求
+    thsShowUrl = "http://127.0.0.1:5000/thsauto/client/show"
     // 买入下单请求
     thsOrderUrl = "http://127.0.0.1:5000/thsauto/buy?stock_no="
     mapSinadata map[string][]SinaQuoteData
 
     arrOrders []string // 已经委托的股票集合
+
+    arrMoniter []string // 已经监控的股票集合
 
     firstLimitNum int // 首板数量
 
@@ -84,6 +91,7 @@ func lessOrEqual(a, b, epsilon float64) bool {
     return a < b || math.Abs(a-b) <= epsilon
 }
 
+// 获取当前路径
 func GetCurrentDirectory() (string, error) {
     dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
     if err != nil {
@@ -133,6 +141,7 @@ func init() {
     mapSinadata = make(map[string][]SinaQuoteData, 0)
 
     arrOrders = make([]string, 0)
+    arrMoniter = make([]string, 0)
 
     path, err := os.Executable()
     if err != nil {
@@ -176,11 +185,11 @@ func LoadConfig() error {
     return nil
 }
 
+// 监控config文件
 func MoniterConfigFile() {
     go watchConfigFile(configFilePath, updateConfigChan)
 
     for {
-        time.Sleep(1 * time.Second)
         select {
         case config := <-updateConfigChan:
             svrConfig = *config
@@ -215,7 +224,11 @@ func GetHttps(url string, wg *sync.WaitGroup) bool {
     }
 
     // Make the request with a custom HTTP client (to control timeouts, etc.)
-    client := &http.Client{}
+    // 设置超时时间
+    client := &http.Client{
+        Timeout: time.Second * 5, // 设置超时时间为 5 秒
+    }
+
     resp, err := client.Do(req)
     if err != nil {
         WriteError(fmt.Sprintf("Error sending request: %s", err))
@@ -223,7 +236,7 @@ func GetHttps(url string, wg *sync.WaitGroup) bool {
     }
     defer resp.Body.Close()
 
-    if !strings.Contains(url, "restart") {
+    if !strings.Contains(url, "restart") && !strings.Contains(url, "kill") {
         // Process the response as before
         body, err := io.ReadAll(resp.Body)
         if err != nil {
@@ -284,11 +297,11 @@ func WriteMoniterInfo(data SinaQuoteData, wg *sync.WaitGroup) {
 
 // 记录委托触发后的信息
 func WriteOrderInfo(data SinaQuoteData, wg *sync.WaitGroup) {
-    wg.Done()
+    defer wg.Done()
     // 获取当前时间
     currentTime := time.Now()
-    strLog := fmt.Sprintf("监控下单成功,委托代码: %s, 股票名称:%s, 当前涨幅:%.2f, 委托价格: %s,行情时间:%s",
-        data.Code, data.Name, data.Changepercent, data.Trade, data.Ticktime)
+    strLog := fmt.Sprintf("委托成功,委托代码: %s, 股票名称:%s, 当前涨幅:%.2f, 委托价格: %s",
+        data.Code, data.Name, data.Changepercent, data.Trade)
 
     fmt.Println("当前时间:", currentTime.Format("15:04:05"), " 行情时间:", data.Ticktime, strLog)
     if moniterLog != nil {
@@ -303,6 +316,7 @@ func WriteError(str string) {
     }
 }
 
+// 自动设置config文件
 func SetMoniterConfig() {
     clct := InitSinaQuoteSpider(3)
     // 发起调用
@@ -314,6 +328,7 @@ func SetMoniterConfig() {
     // var arrTTmp = make([]MoniterInfo, 0)
     //var arrTTmp []MoniterInfo = make([]MoniterInfo, 0)
 
+    svrConfig.OrderInfo.IsMoniter = true
     svrConfig.OrderInfo.IsSecondOrder = false
     svrConfig.OrderInfo.IsFirstOrder = false
     svrConfig.OrderInfo.IsFirst = false
@@ -346,7 +361,7 @@ func SetMoniterConfig() {
                         lessOrEqual(v.Per, 0.00, 0.00001)) {
                         continue
                     } else if !lessOrEqual(dTrade, 3.00, 0.000001) {
-                        svrConfig.ArrMoniter = append(svrConfig.ArrMoniter, MoniterInfo{Symbol: v.Symbol, Changepercent: 15.00, IsMoniter: false})
+                        svrConfig.ArrMoniter = append(svrConfig.ArrMoniter, MoniterInfo{Symbol: v.Symbol, Name: v.Name, Changepercent: 15.00})
                     }
 
                 }
@@ -355,7 +370,7 @@ func SetMoniterConfig() {
     }
     if len(svrConfig.ArrMoniter) == 0 {
         fmt.Print("没有符合条件的创业板")
-        svrConfig.ArrMoniter = append(svrConfig.ArrMoniter, MoniterInfo{Symbol: "sz300750", Changepercent: 15.00, IsMoniter: false})
+        svrConfig.ArrMoniter = append(svrConfig.ArrMoniter, MoniterInfo{Symbol: "sz300750", Name: "宁德时代", Changepercent: 15.00})
     }
 
     // 使用json.MarshalIndent美化输出的JSON（可选，增加可读性）
@@ -381,6 +396,7 @@ func SetMoniterConfig() {
     }
 }
 
+// 设置问题股json
 func SetProbemJson() {
     // 打开文件
     file, err := os.Open("问题股.txt")
@@ -431,7 +447,6 @@ func SetProbemJson() {
 
                 problemStock.ArrStock = append(problemStock.ArrStock, StockPlm{strings.ToLower(arrTmp[0]), utf8String})
             }
-
         }
     }
     // 使用json.MarshalIndent美化输出的JSON（可选，增加可读性）
@@ -455,9 +470,9 @@ func SetProbemJson() {
         fmt.Println("Error writing to file:", errW)
         return
     }
-
 }
 
+// 监控委托涨停板股票
 func MoniterFirstLimitUp(v SinaQuoteData, wg *sync.WaitGroup) {
     defer wg.Done()
 
@@ -522,6 +537,7 @@ func MoniterFirstLimitUp(v SinaQuoteData, wg *sync.WaitGroup) {
     wgThis.Wait()
 }
 
+// 按照config配置监控委托股票
 func MoniterStockOrder(v SinaQuoteData, wg *sync.WaitGroup) {
     defer wg.Done()
 
@@ -529,8 +545,17 @@ func MoniterStockOrder(v SinaQuoteData, wg *sync.WaitGroup) {
 
     // 昨收盘
     price_sett, _ := strconv.ParseFloat(v.Settlement, 64)
-    //涨停价
-    price_max := math.Round(price_sett*120) / 100 // 四舍五入到两位小数
+
+    price_max := 0.00
+    // && !strings.HasPrefix(v.Symbol, "sh688")
+    if strings.HasPrefix(v.Symbol, "sh") || strings.HasPrefix(v.Symbol, "sz0") {
+        //涨停价
+        price_max = math.Round(price_sett*110) / 100 // 四舍五入到两位小数
+    } else {
+        //涨停价
+        price_max = math.Round(price_sett*120) / 100 // 四舍五入到两位小数
+    }
+
     // 市场价
     price_trade, _ := strconv.ParseFloat(v.Trade, 64)
 
@@ -583,29 +608,34 @@ func MoniterStockOrder(v SinaQuoteData, wg *sync.WaitGroup) {
     wgThis.Wait()
 }
 
+// 监控主函数
 func MoniterStockDetail(sinaQuoteDatas []SinaQuoteData) {
     var wg sync.WaitGroup
     wg.Add(2)
     go func() {
         defer wg.Done()
         var wgChild sync.WaitGroup
-        for i, moniter := range svrConfig.ArrMoniter {
+        for _, moniter := range svrConfig.ArrMoniter {
             for _, v := range sinaQuoteDatas {
                 if strings.EqualFold(v.Symbol, moniter.Symbol) {
                     // 保存匹配到的行情数据
                     wgChild.Add(1)
                     go WriteHqInfo(v, &wgChild)
-
                     // 监控
-                    if !moniter.IsMoniter && !lessOrEqual(v.Changepercent, moniter.Changepercent, 0.000001) {
+                    if !lessOrEqual(v.Changepercent, moniter.Changepercent, 0.000001) &&
+                        !slices.Contains(arrMoniter, v.Symbol) {
                         // 重启同花顺客户端
-                        wgChild.Add(2)
-                        go GetHttps(thsStartUrl, &wgChild)
+                        if svrConfig.OrderInfo.IsMoniter {
+                            wgChild.Add(1)
+                            go GetHttps(thsShowUrl, &wgChild)
+                        }
+                        wgChild.Add(1)
                         go WriteMoniterInfo(v, &wgChild)
-                        svrConfig.ArrMoniter[i].IsMoniter = true
+
+                        arrMoniter = append(arrMoniter, v.Symbol)
                     }
 
-                    // 委托
+                    // 委托 连板
                     if svrConfig.OrderInfo.IsSecondOrder && !slices.Contains(arrOrders, v.Symbol) {
                         wgChild.Add(1)
                         go MoniterStockOrder(v, &wgChild)
@@ -620,6 +650,7 @@ func MoniterStockDetail(sinaQuoteDatas []SinaQuoteData) {
     go func() {
         defer wg.Done()
         var wgChild sync.WaitGroup
+        // 委托 首板
         for _, v := range sinaQuoteDatas {
             if svrConfig.OrderInfo.IsFirstOrder && svrConfig.OrderInfo.FirstLimitNum > firstLimitNum &&
                 strings.HasPrefix(v.Symbol, "sz") && !slices.Contains(arrOrders, v.Symbol) &&
@@ -634,6 +665,7 @@ func MoniterStockDetail(sinaQuoteDatas []SinaQuoteData) {
     wg.Wait()
 }
 
+// 集合竞价分析主函数
 func GetCallAuctionInfo() {
     for {
         // 获取当前时间
@@ -662,8 +694,9 @@ func GetCallAuctionInfo() {
     MoniterBidInfo()
 }
 
+// 将集合竞价内容转换为map数据
+// 打开日志文件
 func CalcBidLogger() {
-    // 打开日志文件
     now := time.Now()
     bidFileName := fmt.Sprintf("../log/bidInfo/bid_%04d_%02d_%02d.log", now.Year(), now.Month(), now.Day())
     logFile, err := os.Open(bidFileName)
@@ -822,6 +855,7 @@ func CalcBidLogger() {
     }
 }
 
+// slice排序
 type SinaQuoteDatas []SinaQuoteData
 
 func (p SinaQuoteDatas) Len() int {
@@ -840,11 +874,11 @@ func (p SinaQuoteDatas) Swap(i, j int) {
     p[i], p[j] = p[j], p[i]
 }
 
+// 分析集合竞价数据
 func MoniterBidInfo() {
     for _, v := range mapSinadata {
         // 排序
         sort.Sort(SinaQuoteDatas(v))
-
         var lastSina SinaQuoteData
         var sliceMoniter = make([]string, 0)
         var sliceMoniterTmp = make([]string, 0)
@@ -880,6 +914,7 @@ func MoniterBidInfo() {
     }
 }
 
+// 动态更新config文件
 func watchConfigFile(configPath string, updateChan chan<- *Config) {
     watcher, err := fsnotify.NewWatcher()
     if err != nil {
