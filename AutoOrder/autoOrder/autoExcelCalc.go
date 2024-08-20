@@ -10,6 +10,58 @@ import (
     "github.com/xuri/excelize/v2"
 )
 
+var (
+    excelPath = "../config/xuangu/交易日期_2024.xlsx"
+    currExcel ExcelOrder // 当前涨停数据
+    preExcel  ExcelOrder // 上一日涨停数据
+
+    // 一个月最多五周
+    firWeek   = new(OneWeek)
+    secWeek   = new(OneWeek)
+    thridWeek = new(OneWeek)
+    fourWeek  = new(OneWeek)
+    fifWeek   = new(OneWeek)
+
+    yesterDay = new(OneDay)
+
+    IsMonFirstDay bool // 一个月的第一天
+)
+
+func Init() {
+    currExcel.stkInfo = make(map[int][]rowInfo)
+    preExcel.stkInfo = make(map[int][]rowInfo)
+
+    yesterDay.MapStk = make(map[int][]OneStk)
+
+    firWeek.Init()
+    secWeek.Init()
+    thridWeek.Init()
+    fourWeek.Init()
+    fifWeek.Init()
+
+    IsMonFirstDay = false
+}
+
+// 今日涨停和昨日涨停数据
+// sheet1和sheet2里的一行数据
+type rowInfo struct {
+    Code          string
+    Name          string
+    Reason        string
+    Money         string
+    changepercent float64
+}
+
+// 今日涨停和昨日涨停数据
+type ExcelOrder struct {
+    day     int
+    mon     int
+    year    int
+    weekNum time.Weekday
+    stkInfo map[int][]rowInfo
+}
+
+// 一只股票的信息
 type OneStk struct {
     Code    string
     Name    string
@@ -19,17 +71,21 @@ type OneStk struct {
     PreRate string
 }
 
+// 一天的股票信息 map[int][]OneStk, int:表示第几板 []OneStk股票信息集合
 type OneDay struct {
     Date    string
     WeekNum time.Weekday
     MapStk  map[int][]OneStk // 格式为 arrStk[1].[0] 连板数为1的第一支股票
 }
 
+// 一周的股票信息  Maxboard 表示每个连板占excel的行数数组，例如 [4 4 4 32] 分别代表 4,3,2,1连板的行数
+// []OneDay每天股票信息的集合
 type OneWeek struct {
     Maxboard []int // 最大的板块数
     ArrDay   []OneDay
 }
 
+// 接口用来操作切换每周的数据，最多只配置了五周，一个月的
 type Weeker interface {
     Init()
     SetParam(x interface{})
@@ -43,11 +99,13 @@ type Weeker interface {
 //     fmt.Printf("Maxboard : %p\n", w.Maxboard)
 // }
 
+// 初始化
 func (w *OneWeek) Init() {
     w.Maxboard = make([]int, 0)
     w.ArrDay = make([]OneDay, 0)
 }
 
+// 插入连板格子数量
 func (w *OneWeek) SetParam(x interface{}) {
     switch v := x.(type) {
     case int:
@@ -59,6 +117,7 @@ func (w *OneWeek) SetParam(x interface{}) {
     }
 }
 
+// 写入一天的股票数据 day:第几天 k:第几板
 func (w *OneWeek) PushStk(day, k int, oneStk OneStk) {
     if len(w.ArrDay) < day+1 {
         fmt.Println(day, k, oneStk, "写入失败")
@@ -67,19 +126,22 @@ func (w *OneWeek) PushStk(day, k int, oneStk OneStk) {
     w.ArrDay[day].MapStk[k] = append(w.ArrDay[day].MapStk[k], oneStk)
 }
 
+// 获取每个连板占excel的行数数组，例如 [4 4 4 32] 分别代表 4,3,2,1连板的行数
 func (w *OneWeek) GetMaxBoard() []int {
     return w.Maxboard
 }
 
+// 获取一周的股票数据
 func (w *OneWeek) GetArrDay() []OneDay {
     return w.ArrDay
 }
 
+// []排序
 type ByDescending []int
 
 func (a ByDescending) Len() int           { return len(a) }
 func (a ByDescending) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByDescending) Less(i, j int) bool { return a[i] > a[j] } // 注意这里的比较符号
+func (a ByDescending) Less(i, j int) bool { return a[i] > a[j] } // 注意这里的比较符号 降序排序
 
 // 将excel的二维数组转为OneWeek结构体数据
 func GetWriteSheet(writeSheet [][]string, sheetName string) {
@@ -234,11 +296,12 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
 
     // 插入当日数据 -- begin
     var curDay OneDay // 当日数据
-    // ExcelOrder 转换为 OneDay
+
+    // 1. 先把ExcelOrder 转换为 OneDay ////////////////////////////////////////////////////////////
+
     curDay.Date = fmt.Sprintf("%d.%02d.%02d", currExcel.year, currExcel.mon, currExcel.day)
     curDay.WeekNum = currExcel.weekNum
     curDay.MapStk = make(map[int][]OneStk)
-
     for k, v := range currExcel.stkInfo { // 遍历第几板
         for i, value := range v { // 遍历到单只股票
             var oneStk OneStk
@@ -257,7 +320,11 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
             curDay.MapStk[k] = append(curDay.MapStk[k], oneStk)
         }
     }
-    // ExcelOrder 转换为 OneDay -- end
+
+    // ExcelOrder 转换为 OneDay -- end ////////////////////////////////////////////////////////////
+
+    // 2. 将转换成功的OneDay数据插入到对应的周中，此处的难点在于要知道是第几周，而且还包括节假日、切换到下一周、
+    //    一个月的第一天、当日连板数与这一周之前的天数不一致(少于或多于之前的连板数)....
 
     // 定义日期格式
     dateLayout := "2006.01.02"
@@ -311,6 +378,8 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
                     weeker.SetParam(4)
                 }
             }
+            // 打印出当日的连板数组，方便确定数据有没有问题
+            fmt.Println(weeker.GetArrDay())
         }
     } else { // 如果当天的数据很多，就可能需要改原来的maxBoard
         tmpSlice := make([]int, 0)
@@ -351,14 +420,16 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
                 }
             }
         }
-
         weeker.SetParam(tmpSlice)
+        // 打印出当日的连板数组，方便确定数据有没有问题
         fmt.Println(tmpSlice)
     }
     weeker.SetParam(curDay)
     // 插入当日数据 -- end
 }
 
+// 将行列数转为excel里面特有的表格字符，如：第1行，第1列 ==> A1
+// 特殊处理，按照星期几增加列数，这样就可以把每天的数据按照星期数固定在特定的列上
 func GetExcelCol(row, col int, weekday time.Weekday) string {
     addcol := 0
     if weekday != time.Sunday && weekday != time.Saturday { // 周一到周五按照固定的列写入，防止节假日格式错乱的情况
@@ -369,7 +440,7 @@ func GetExcelCol(row, col int, weekday time.Weekday) string {
     return str
 }
 
-// 写excel表
+// 按照firWeek,secWeek...写入excel表
 func WriteExcel(sheetName string) bool {
     // 打开一个已存在的 Excel 文件
     f, err := excelize.OpenFile(excelPath)

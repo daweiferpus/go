@@ -10,113 +10,7 @@ import (
     "github.com/360EntSecGroup-Skylar/excelize"
 )
 
-var (
-    excelPath = "../config/xuangu/交易日期_2024.xlsx"
-    currExcel ExcelOrder // 当前涨停数据
-    preExcel  ExcelOrder // 上一日涨停数据
-
-    // 一个月最多五周
-    firWeek   = new(OneWeek)
-    secWeek   = new(OneWeek)
-    thridWeek = new(OneWeek)
-    fourWeek  = new(OneWeek)
-    fifWeek   = new(OneWeek)
-
-    yesterDay = new(OneDay)
-
-    IsMonFirstDay bool // 一个月的第一天
-)
-
-func Init() {
-    currExcel.stkInfo = make(map[int][]rowInfo)
-    preExcel.stkInfo = make(map[int][]rowInfo)
-
-    yesterDay.MapStk = make(map[int][]OneStk)
-
-    firWeek.Init()
-    secWeek.Init()
-    thridWeek.Init()
-    fourWeek.Init()
-    fifWeek.Init()
-
-    IsMonFirstDay = false
-}
-
-type rowInfo struct {
-    Code          string
-    Name          string
-    Reason        string
-    Money         string
-    changepercent float64
-}
-
-type ExcelOrder struct {
-    day     int
-    mon     int
-    year    int
-    weekNum time.Weekday
-    stkInfo map[int][]rowInfo
-}
-
-type WeekInfo struct {
-    date    string
-    weekNum time.Weekday
-    stkInfo map[int][]rowInfo
-}
-
-func (w *WeekInfo) Init() {
-    w.date = ""
-    w.weekNum = 0
-    w.stkInfo = make(map[int][]rowInfo)
-}
-
-func (w *WeekInfo) SetParam(x ...interface{}) {
-    switch v := x[0].(type) {
-    case string:
-        w.date = v
-    case time.Weekday:
-        w.weekNum = v
-    case int:
-        if len(x) > 1 {
-            value, ok := x[1].(rowInfo)
-            if ok {
-                w.stkInfo[v] = append(w.stkInfo[v], value)
-            }
-        }
-    }
-}
-
-type WeekInfoer interface {
-    Init()
-    SetParam(x ...interface{})
-}
-
-type WeekTotal struct {
-    MaxNum      []int      // 每个板的最大板数
-    statekTotal []WeekInfo // 每天的信息
-}
-
-type WriteExceler interface {
-    Init()
-    ModifyExcel(v interface{})
-}
-
-func (wk *WeekTotal) Init() {
-    wk.MaxNum = make([]int, 0)
-    wk.statekTotal = make([]WeekInfo, 0)
-}
-
-func (wk *WeekTotal) ModifyExcel(v interface{}) {
-    switch value := v.(type) {
-    case int:
-        wk.MaxNum = append(wk.MaxNum, value)
-    case WeekInfo:
-        wk.statekTotal = append(wk.statekTotal, value)
-    default:
-        break
-    }
-}
-
+// 转换字符串格式 例："1300万" ==> "0.13亿"
 func convertChineseNumToDecimal(inputStr string) string {
     // 定义单位和对应的数值
     units := map[string]float64{"万": 10000, "亿": 100000000}
@@ -150,6 +44,7 @@ func convertChineseNumToDecimal(inputStr string) string {
     // return fmt.Sprintf("%.2f万", num/10000)
 }
 
+// 取昨日、今日涨停数据，将sheet1、sheet2的表格二维数组转换为ExcelOrder格式
 func (e *ExcelOrder) GetOrderInfo(readSheet [][]string) {
     if e.stkInfo == nil {
         e.stkInfo = make(map[int][]rowInfo)
@@ -205,6 +100,7 @@ func (e *ExcelOrder) GetOrderInfo(readSheet [][]string) {
     }
 }
 
+// 取表格数据，结果为二维数组，表示行列
 func GetExcelInfo(filepath, sheetName string) [][]string {
     f, err := excelize.OpenFile(filepath)
     if err != nil {
@@ -228,8 +124,9 @@ func GetExcelInfo(filepath, sheetName string) [][]string {
     return nil
 }
 
+// 写excel入口函数，将sheet1和sheet2的数据写入每月总结数据中
 func SetStockExcel() {
-    // 获取当日数据
+    // 获取当日涨停数据
     readSheet := GetExcelInfo(excelPath, "Sheet1")
     if readSheet == nil {
         fmt.Println("Sheet1 is nil")
@@ -238,7 +135,7 @@ func SetStockExcel() {
     // 将sheet1的格式转为ExcelOrder
     currExcel.GetOrderInfo(readSheet)
 
-    // 获取前日数据
+    // 获取前日涨停数据
     readSheet = GetExcelInfo(excelPath, "Sheet2")
     if readSheet == nil {
         fmt.Println("Sheet2 is nil")
@@ -247,12 +144,12 @@ func SetStockExcel() {
     // 将sheet2的格式转为ExcelOrder
     preExcel.GetOrderInfo(readSheet)
 
-    if currExcel.mon <= 0 {
+    if currExcel.mon <= 0 || preExcel.mon <= 0 {
         fmt.Println("写入失败...")
         return
     }
     sheetName := ""
-    // 修改excel, 确认修改的是第一个月的数据
+    // 获取要修改的表单名称,根据当日涨停日期推算出要写入到哪个月的总结数据中
     if currExcel.weekNum != time.Monday && currExcel.day < 7 && currExcel.mon != 10 {
         sheetName = fmt.Sprintf("%d月", currExcel.mon-1)
     } else {
@@ -262,7 +159,7 @@ func SetStockExcel() {
     fmt.Printf("正在写入表格: %s ...\n", sheetName)
     // 获取写入单元格
     writeSheet := GetExcelInfo(excelPath, sheetName)
-    if writeSheet == nil { // 一个月的第一天，取sheet取不到，就取上一个月的
+    if writeSheet == nil { // 如果当前日期是一个月的第一天，取sheet取不到，就取上一个月的
         IsMonFirstDay = true
         lastMon := fmt.Sprintf("%d月", currExcel.mon-1)
         writeSheet := GetExcelInfo(excelPath, lastMon)
@@ -272,9 +169,11 @@ func SetStockExcel() {
         }
     }
 
-    // 将excel的二维数组转为OneWeek结构体数据
+    // 1.将excel的二维数组转为OneWeek数据
+    // 2.将curExcel、preExcel当日涨停和昨日涨停的数据插入OneWeek
     GetWriteSheet(writeSheet, sheetName)
 
+    // 按格式写入sheet表单
     WriteExcel(sheetName)
 
     fmt.Println("写入成功")
