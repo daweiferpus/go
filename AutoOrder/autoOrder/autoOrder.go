@@ -100,7 +100,7 @@ func InitSinaQuoteSpider(mode int) *colly.Collector {
     // 定义一个处理响应的回调函数，该函数会在Colly成功从web服务器接收到响应数据后执行。
     sinaClct.OnResponse(func(r *colly.Response) {
         if r.Request.URL.String() == indexUrl {
-            if mode == 2 {
+            if mode == 2 { // 集合竞价取涨幅榜前100
                 sinaClct.Visit(incPrc100Url)
             } else {
                 sinaClct.Visit(incPrcUrl)
@@ -111,10 +111,13 @@ func InitSinaQuoteSpider(mode int) *colly.Collector {
             json.Unmarshal(r.Body, &quotes)
 
             if mode == 1 {
+                // 监控股票信息
                 go MoniterStockDetail(quotes)
             } else if mode == 2 {
+                // 分析集合竞价股票信息
                 go WriteBidInfo(quotes)
             } else if mode == 3 {
+                // config.ini文件自动配置
                 sinaQuoteDatas = append(sinaQuoteDatas, quotes...)
             }
         }

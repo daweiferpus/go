@@ -16,15 +16,15 @@ var (
     preExcel  ExcelOrder // 上一日涨停数据
 
     // 一个月最多五周
-    firWeek   = new(OneWeek)
-    secWeek   = new(OneWeek)
-    thridWeek = new(OneWeek)
-    fourWeek  = new(OneWeek)
-    fifWeek   = new(OneWeek)
+    firWeek   = new(OneWeek) // 第一周的数据
+    secWeek   = new(OneWeek) // 第二周的数据
+    thridWeek = new(OneWeek) // 第三周的数据
+    fourWeek  = new(OneWeek) // 第四周的数据
+    fifWeek   = new(OneWeek) // 第五周的数据
 
-    yesterDay = new(OneDay)
+    yesterDay = new(OneDay) // 昨日涨停数据
 
-    IsMonFirstDay bool // 一个月的第一天
+    IsMonFirstDay bool // 是否是一个月的第一天，需要特殊处理，涉及到两个表单
 )
 
 func Init() {
@@ -45,11 +45,11 @@ func Init() {
 // 今日涨停和昨日涨停数据
 // sheet1和sheet2里的一行数据
 type rowInfo struct {
-    Code          string
-    Name          string
-    Reason        string
-    Money         string
-    changepercent float64
+    Code          string  // 股票代码
+    Name          string  // 股票名称
+    Reason        string  // 涨停理由
+    Money         string  // 封单金额
+    changepercent float64 // T+1日涨幅
 }
 
 // 今日涨停和昨日涨停数据
@@ -57,32 +57,32 @@ type ExcelOrder struct {
     day     int
     mon     int
     year    int
-    weekNum time.Weekday
-    stkInfo map[int][]rowInfo
+    weekNum time.Weekday      // 记录星期几
+    stkInfo map[int][]rowInfo // int : 第几板  []rowInfo每个板中的股票信息
 }
 
 // 一只股票的信息
 type OneStk struct {
-    Code    string
-    Name    string
-    Reason  string
-    Money   string
-    Perform string
-    PreRate string
+    Code    string // 股票代码
+    Name    string // 股票名称
+    Reason  string // 涨停理由
+    Money   string // 封单金额
+    Perform string // T+日表现  < -4：大面； < -4且小于0：小面； > 0 且没涨停红盘； 涨停：晋级
+    PreRate string // 特殊处理，第一条数据记录板块表现 例："共4支 晋级率13.33%"
 }
 
 // 一天的股票信息 map[int][]OneStk, int:表示第几板 []OneStk股票信息集合
 type OneDay struct {
-    Date    string
-    WeekNum time.Weekday
+    Date    string           //日期
+    WeekNum time.Weekday     // 星期数
     MapStk  map[int][]OneStk // 格式为 arrStk[1].[0] 连板数为1的第一支股票
 }
 
 // 一周的股票信息  Maxboard 表示每个连板占excel的行数数组，例如 [4 4 4 32] 分别代表 4,3,2,1连板的行数
 // []OneDay每天股票信息的集合
 type OneWeek struct {
-    Maxboard []int // 最大的板块数
-    ArrDay   []OneDay
+    Maxboard []int    // 最大的板块数
+    ArrDay   []OneDay // 每天的股票信息集合
 }
 
 // 接口用来操作切换每周的数据，最多只配置了五周，一个月的
@@ -105,7 +105,7 @@ func (w *OneWeek) Init() {
     w.ArrDay = make([]OneDay, 0)
 }
 
-// 插入连板格子数量
+// 设置每周的数据，包括股票信息，连板数组
 func (w *OneWeek) SetParam(x interface{}) {
     switch v := x.(type) {
     case int:
@@ -378,7 +378,7 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
                     weeker.SetParam(4)
                 }
             }
-            // 打印出当日的连板数组，方便确定数据有没有问题
+            // 打印出当日连板数组，方便确认当日写入有没有什么问题
             fmt.Println(weeker.GetArrDay())
         }
     } else { // 如果当天的数据很多，就可能需要改原来的maxBoard
@@ -420,8 +420,9 @@ func GetWriteSheet(writeSheet [][]string, sheetName string) {
                 }
             }
         }
+
         weeker.SetParam(tmpSlice)
-        // 打印出当日的连板数组，方便确定数据有没有问题
+        // 打印出当日连板数组，方便确认当日写入有没有什么问题
         fmt.Println(tmpSlice)
     }
     weeker.SetParam(curDay)

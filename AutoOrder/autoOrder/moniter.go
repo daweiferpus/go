@@ -185,7 +185,7 @@ func LoadConfig() error {
     return nil
 }
 
-// 监控config文件
+// 实时监控config文件
 func MoniterConfigFile() {
     go watchConfigFile(configFilePath, updateConfigChan)
 
@@ -236,6 +236,7 @@ func GetHttps(url string, wg *sync.WaitGroup) bool {
     }
     defer resp.Body.Close()
 
+    // 关闭和监控行情失败时不记录错误信息
     if !strings.Contains(url, "restart") && !strings.Contains(url, "kill") {
         // Process the response as before
         body, err := io.ReadAll(resp.Body)
