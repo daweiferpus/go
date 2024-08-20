@@ -7,10 +7,15 @@
 config.json:
 
 IsMoniter ：// 是否开启监控
+
 {
+
     Symbol:         // 监控的股票代码
+    
     Name:           // 股票名称
+    
     WarnPercent:    // 触发监控时的涨幅
+    
 }
 
 2、GetCallAuctionInfo 集合竞价数据收集、分析，将集合竞价的股票数据分析写入到对应日志文件中
